@@ -3,6 +3,10 @@ from tkinter import ttk
 import pickle
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import seaborn as sns
 
 class HousePricePredictorGUI:
     def __init__(self, root):
@@ -30,13 +34,47 @@ class HousePricePredictorGUI:
                                style='Header.TLabel')
         title_label.grid(row=0, column=0, columnspan=2, pady=20)
         
-        # Left Frame - Input Parameters
-        left_frame = ttk.LabelFrame(container, text="Input Parameters", padding="20")
-        left_frame.grid(row=1, column=0, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10)
+        # Create notebook (tabbed interface)
+        self.notebook = ttk.Notebook(container)
+        self.notebook.grid(row=1, column=0, columnspan=2, sticky=(tk.N, tk.S, tk.E, tk.W))
+
+        # Create main prediction tab
+        prediction_frame = ttk.Frame(self.notebook)
+        self.notebook.add(prediction_frame, text='Price Prediction')
+
+        # Create visualization tab
+        viz_frame = ttk.Frame(self.notebook)
+        self.notebook.add(viz_frame, text='Visualizations')
+
+        # Create comparison tab
+        comparison_frame = ttk.Frame(self.notebook)
+        self.notebook.add(comparison_frame, text='District Comparison')
+
+        # Move existing left_frame and right_frame into prediction_frame
+        left_frame = ttk.LabelFrame(prediction_frame, text="Input Parameters", padding="20")
+        left_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10)
         
-        # Right Frame - Results
-        right_frame = ttk.LabelFrame(container, text="Results", padding="20")
-        right_frame.grid(row=1, column=1, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10)
+        right_frame = ttk.LabelFrame(prediction_frame, text="Results", padding="20")
+        right_frame.grid(row=0, column=1, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10)
+
+        # Add visualization buttons
+        viz_buttons_frame = ttk.Frame(viz_frame)
+        viz_buttons_frame.grid(row=0, column=0, pady=10)
+
+        ttk.Button(viz_buttons_frame, text="Price Trends", 
+                   command=self.show_price_trends).pack(side=tk.LEFT, padx=5)
+        ttk.Button(viz_buttons_frame, text="Price vs Area", 
+                   command=self.show_price_vs_area).pack(side=tk.LEFT, padx=5)
+        ttk.Button(viz_buttons_frame, text="District Heatmap", 
+                   command=self.show_district_heatmap).pack(side=tk.LEFT, padx=5)
+        ttk.Button(viz_buttons_frame, text="District Comparison", 
+                   command=self.show_district_comparison).pack(side=tk.LEFT, padx=5)
+        ttk.Button(viz_buttons_frame, text="Room Distribution", 
+                   command=self.show_room_distribution).pack(side=tk.LEFT, padx=5)
+
+        # Frame for the plots
+        self.plot_frame = ttk.Frame(viz_frame)
+        self.plot_frame.grid(row=1, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
         
         # Load the models
         with open('house_price_models.pkl', 'rb') as f:
@@ -116,6 +154,9 @@ class HousePricePredictorGUI:
         container.rowconfigure(1, weight=1)
         right_frame.columnconfigure(0, weight=1)
         right_frame.rowconfigure(1, weight=1)
+
+        # Setup comparison tab
+        self.setup_comparison_tab(comparison_frame)
 
     def get_price_trends(self, district, room_type):
         district_data = self.df[self.df['Bölge'] == district]
@@ -233,3 +274,220 @@ class HousePricePredictorGUI:
         except Exception as e:
             self.result_label.config(text="Error: Please check your inputs")
             self.stats_text.delete('1.0', tk.END)
+
+    def create_plot_canvas(self, frame):
+        # Clear existing plot frame
+        for widget in frame.winfo_children():
+            widget.destroy()
+        
+        # Create figure and canvas
+        fig = Figure(figsize=(10, 6))
+        canvas = FigureCanvasTkAgg(fig, master=frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        return fig
+
+    def show_price_trends(self):
+        fig = self.create_plot_canvas(self.plot_frame)
+        ax = fig.add_subplot(111)
+        
+        # Calculate average prices by district
+        avg_prices = self.df.groupby('Bölge')['Fiyat'].mean().sort_values(ascending=True)
+        
+        # Create line plot
+        ax.plot(range(len(avg_prices)), avg_prices.values, marker='o')
+        ax.set_xticks(range(len(avg_prices)))
+        ax.set_xticklabels(avg_prices.index, rotation=45, ha='right')
+        ax.set_title('Average House Prices by District')
+        ax.set_ylabel('Price (TL)')
+        fig.tight_layout()
+
+    def show_price_vs_area(self):
+        fig = self.create_plot_canvas(self.plot_frame)
+        ax = fig.add_subplot(111)
+        
+        # Create scatter plot
+        sns.scatterplot(data=self.df, x='m² (Brüt)', y='Fiyat', ax=ax, alpha=0.5)
+        ax.set_title('Price vs Area')
+        ax.set_xlabel('Area (m²)')
+        ax.set_ylabel('Price (TL)')
+        fig.tight_layout()
+
+    def show_district_heatmap(self):
+        fig = self.create_plot_canvas(self.plot_frame)
+        ax = fig.add_subplot(111)
+        
+        # Calculate average price per m² for each district
+        price_per_m2 = self.df.groupby('Bölge')['Fiyat'].mean().reset_index()
+        price_per_m2 = price_per_m2.pivot_table(index='Bölge', values='Fiyat')
+        
+        # Create heatmap
+        sns.heatmap(price_per_m2, ax=ax, cmap='YlOrRd', annot=True, fmt='.0f')
+        ax.set_title('Average Prices Heatmap by District')
+        fig.tight_layout()
+
+    def show_district_comparison(self):
+        fig = self.create_plot_canvas(self.plot_frame)
+        ax = fig.add_subplot(111)
+        
+        # Calculate average prices by district
+        avg_prices = self.df.groupby('Bölge')['Fiyat'].mean().sort_values(ascending=True)
+        
+        # Create bar plot
+        avg_prices.plot(kind='bar', ax=ax)
+        ax.set_xticklabels(avg_prices.index, rotation=45, ha='right')
+        ax.set_title('Average House Prices by District')
+        ax.set_ylabel('Price (TL)')
+        fig.tight_layout()
+
+    def show_room_distribution(self):
+        fig = self.create_plot_canvas(self.plot_frame)
+        ax = fig.add_subplot(111)
+        
+        # Calculate room type distribution
+        room_dist = self.df['Oda Sayısı'].value_counts()
+        
+        # Filter out very small segments (less than 1%)
+        min_pct = 1.0
+        other_pct = room_dist[room_dist/room_dist.sum()*100 < min_pct].sum()
+        room_dist = room_dist[room_dist/room_dist.sum()*100 >= min_pct]
+        
+        # Add "Other" category if needed
+        if other_pct > 0:
+            room_dist['Other'] = other_pct
+        
+        # Calculate percentages
+        pcts = room_dist/room_dist.sum() * 100
+        
+        # Sort values for better visualization
+        room_dist = room_dist.sort_values(ascending=False)
+        
+        # Create pie chart with better formatting
+        wedges, texts, autotexts = ax.pie(room_dist.values, 
+                                         labels=room_dist.index,
+                                         autopct='%1.1f%%',
+                                         pctdistance=0.85,
+                                         labeldistance=1.1)
+        
+        # Enhance the appearance
+        plt.setp(autotexts, size=8, weight="bold")
+        plt.setp(texts, size=8)
+        
+        # Add title
+        ax.set_title('Distribution of Room Types', pad=20)
+        
+        # Equal aspect ratio ensures that pie is drawn as a circle
+        ax.axis('equal')
+        
+        # Adjust layout to prevent label cutoff
+        fig.tight_layout(pad=2.0)
+
+    def setup_comparison_tab(self, frame):
+        # Create left panel for district selection
+        left_panel = ttk.Frame(frame, padding="10")
+        left_panel.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.W))
+
+        # Create listbox with districts
+        ttk.Label(left_panel, text="Select Districts to Compare:", 
+                  style='Modern.TLabel').grid(row=0, column=0, pady=(0, 5))
+        
+        # Create listbox with scrollbar
+        listbox_frame = ttk.Frame(left_panel)
+        listbox_frame.grid(row=1, column=0)
+        
+        self.district_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, 
+                                          height=15, width=30)
+        scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", 
+                                 command=self.district_listbox.yview)
+        
+        self.district_listbox.config(yscrollcommand=scrollbar.set)
+        self.district_listbox.pack(side=tk.LEFT, fill=tk.Y)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Add districts to listbox
+        for district in sorted(self.districts):
+            self.district_listbox.insert(tk.END, district)
+
+        # Add comparison button
+        ttk.Button(left_panel, text="Compare Districts", 
+                   command=self.compare_districts, 
+                   style='Modern.TButton').grid(row=2, column=0, pady=10)
+
+        # Create right panel for plots
+        self.comparison_plot_frame = ttk.Frame(frame, padding="10")
+        self.comparison_plot_frame.grid(row=0, column=1, sticky=(tk.N, tk.S, tk.E, tk.W))
+
+        # Configure grid weights
+        frame.columnconfigure(1, weight=1)
+        frame.rowconfigure(0, weight=1)
+
+    def compare_districts(self):
+        # Get selected districts
+        selections = self.district_listbox.curselection()
+        if not selections:
+            return
+        
+        selected_districts = [self.district_listbox.get(i) for i in selections]
+        
+        # Create comparison plots
+        fig = self.create_plot_canvas(self.comparison_plot_frame)
+        
+        # Create subplots (3 rows)
+        gs = fig.add_gridspec(3, 1, height_ratios=[2, 2, 1])
+        ax1 = fig.add_subplot(gs[0])  # Room type distribution
+        ax2 = fig.add_subplot(gs[1])  # Price distribution
+        ax3 = fig.add_subplot(gs[2])  # Price per m²
+        
+        # Room type distribution comparison
+        for district in selected_districts:
+            district_data = self.df[self.df['Bölge'] == district]
+            room_dist = district_data['Oda Sayısı'].value_counts()
+            total = len(district_data)
+            # Calculate percentages and keep only top 5 room types
+            room_pcts = (room_dist / total * 100).nlargest(5)
+            ax1.plot(room_pcts.index, room_pcts.values, marker='o', label=district)
+        
+        ax1.set_title('Room Type Distribution (Top 5)')
+        ax1.set_ylabel('Percentage (%)')
+        ax1.tick_params(axis='x', rotation=45)
+        ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax1.grid(True, linestyle='--', alpha=0.7)
+        
+        # Price distribution comparison (using KDE plot)
+        price_data = []
+        for district in selected_districts:
+            district_data = self.df[self.df['Bölge'] == district]
+            # Normalize prices to millions for better readability
+            prices_in_millions = district_data['Fiyat'] / 1_000_000
+            sns.kdeplot(data=prices_in_millions, ax=ax2, label=district)
+        
+        ax2.set_title('Price Distribution')
+        ax2.set_xlabel('Price (Million TL)')
+        ax2.set_ylabel('Density')
+        ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax2.grid(True, linestyle='--', alpha=0.7)
+        
+        # Average price per m²
+        avg_prices = []
+        for district in selected_districts:
+            district_df = self.df[self.df['Bölge'] == district]
+            avg_price_per_m2 = (district_df['Fiyat'] / district_df['m² (Brüt)']).mean()
+            avg_prices.append(avg_price_per_m2)
+        
+        # Create bar plot
+        bars = ax3.bar(range(len(selected_districts)), avg_prices)
+        ax3.set_xticks(range(len(selected_districts)))
+        ax3.set_xticklabels(selected_districts, rotation=45)
+        ax3.set_title('Average Price per m²')
+        ax3.set_ylabel('TL/m²')
+        ax3.grid(True, linestyle='--', alpha=0.7)
+        
+        # Add value labels on the bars
+        for bar in bars:
+            height = bar.get_height()
+            ax3.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{int(height):,}',
+                    ha='center', va='bottom')
+        
+        # Adjust layout
+        fig.tight_layout()
