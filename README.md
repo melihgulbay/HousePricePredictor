@@ -50,6 +50,7 @@ A desktop application that predicts house prices in Istanbul using machine learn
 
 - `main.py`: Application entry point
 - `gui.py`: GUI implementation
+- `gui_old.py`: Old version of GUI implementation (easier to modify)
 - `models.py`: Machine learning model training
 - `house_prices.csv`: Dataset
 
