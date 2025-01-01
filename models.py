@@ -13,44 +13,46 @@ from sklearn.model_selection import KFold
 
 def evaluate_model(model, X, y, X_scaled, needs_scaling):
     """
-    Evaluates a model using various metrics.
+    Evaluates a model using cross-validation and various performance metrics:
+    - R² score (coefficient of determination)
+    - RMSE (Root Mean Square Error)
+    - MAE (Mean Absolute Error)
+    - Prediction standard deviation (for ensemble models)
     """
-    # Convert to numpy arrays for consistent handling
+    # Convert inputs to numpy arrays for consistent handling
     if needs_scaling:
         X_eval = X_scaled.to_numpy()
     else:
         X_eval = X.to_numpy()
     y_array = y.to_numpy()
     
-    # Use cross-validation for more robust evaluation
+    # Perform 5-fold cross-validation for R² score
     cv_scores = cross_val_score(model, X_eval, y_array, cv=5, scoring='r2')
     
-    # Split data for additional metrics
+    # Split data into training and test sets for additional metrics
     X_train, X_test, y_train, y_test = train_test_split(
         X_eval, y_array, test_size=0.2, random_state=42
     )
     
-    # Fit on training data
+    # Train model and make predictions
     model.fit(X_train, y_train)
-    
-    # Make predictions
     y_pred = model.predict(X_test)
     
-    # Calculate metrics
+    # Calculate standard error metrics
     mse = mean_squared_error(y_test, y_pred)
     rmse = np.sqrt(mse)
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
     
-    # Calculate prediction intervals (if applicable)
+    # Calculate prediction intervals for ensemble models
     prediction_std = None
     if hasattr(model, 'estimators_'):
         if isinstance(model, RandomForestRegressor):
-            # For Random Forest, use individual tree predictions
+            # For Random Forest: use individual tree predictions
             predictions = np.array([tree.predict(X_test) for tree in model.estimators_])
             prediction_std = np.std(predictions, axis=0).mean()
         elif isinstance(model, GradientBoostingRegressor):
-            # For Gradient Boosting, use staged predictions
+            # For Gradient Boosting: use staged predictions
             staged_preds = np.array(list(model.staged_predict(X_test)))
             prediction_std = np.std(staged_preds, axis=0).mean()
     
@@ -64,16 +66,20 @@ def evaluate_model(model, X, y, X_scaled, needs_scaling):
     }
 
 def train_models():
-    # Read the CSV file with semicolon separator
+    """
+    Trains and evaluates multiple regression models for house price prediction:
+    1. Linear Regression
+    2. Random Forest
+    3. Support Vector Regression (SVR)
+    4. Gradient Boosting
+    5. XGBoost
+    """
+    # Load and preprocess the dataset
     df = pd.read_csv('house_prices.csv', sep=';', encoding='utf-8')
-    
-    # Clean price column (remove "TL" and convert to float)
     df['Fiyat'] = df['Fiyat'].str.replace(' TL', '').str.replace('.', '').str.replace(',', '.').astype(float)
     
-    # Extract features (X) and target (y)
+    # Feature engineering: create one-hot encoded features for categorical variables
     X = df[['m² (Brüt)', 'Oda Sayısı']]
-    
-    # Convert both Bölge and Oda Sayısı to numeric using one-hot encoding
     X = pd.concat([
         X[['m² (Brüt)']], 
         pd.get_dummies(df['Oda Sayısı'], prefix='oda'),
@@ -81,59 +87,60 @@ def train_models():
     ], axis=1)
     y = df['Fiyat']
     
-    # Drop rows with missing values
+    # Remove rows with missing values
     mask = X.notna().all(axis=1) & y.notna()
     X = X[mask]
     y = y[mask]
     
-    # Convert to numpy array to avoid feature names warning
+    # Convert to numpy arrays
     X_array = X.to_numpy()
     
-    # Scale the features
+    # Scale numerical features for models that need it
     scaler = StandardScaler()
     X_scaled = X.copy()
     X_scaled['m² (Brüt)'] = scaler.fit_transform(X[['m² (Brüt)']])
     X_scaled_array = X_scaled.to_numpy()
     
-    # Dictionary to store model metrics
+    # Dictionary to store model performance metrics
     model_metrics = {}
     
-    # Train and evaluate Linear Regression
+    # 1. Linear Regression (needs scaled features)
     lr_model = LinearRegression()
     lr_model.fit(X_scaled_array, y)
     model_metrics['linear'] = evaluate_model(lr_model, X, y, X_scaled, True)
     
-    # Train and evaluate Random Forest
-    rf_model = RandomForestRegressor(n_estimators=500, max_depth=10, 
-                                   min_samples_split=10, min_samples_leaf=4,
-                                   random_state=42, n_jobs=-1)
+    # 2. Random Forest (can handle unscaled features)
+    rf_model = RandomForestRegressor(
+        n_estimators=500, max_depth=10, 
+        min_samples_split=10, min_samples_leaf=4,
+        random_state=42, n_jobs=-1
+    )
     rf_model.fit(X_array, y)
     model_metrics['random_forest'] = evaluate_model(rf_model, X, y, X_scaled, False)
     
-    # Train and evaluate SVR
+    # 3. SVR (needs scaled features)
     svr_model = SVR(kernel='rbf', C=1000.0, epsilon=0.1, gamma='scale')
     svr_model.fit(X_scaled_array, y)
     model_metrics['svr'] = evaluate_model(svr_model, X, y, X_scaled, True)
     
-    # Train and evaluate Gradient Boosting
-    gb_model = GradientBoostingRegressor(n_estimators=200, learning_rate=0.1,
-                                        max_depth=5, min_samples_split=5,
-                                        min_samples_leaf=3, random_state=42)
+    # 4. Gradient Boosting (can handle unscaled features)
+    gb_model = GradientBoostingRegressor(
+        n_estimators=200, learning_rate=0.1,
+        max_depth=5, min_samples_split=5,
+        min_samples_leaf=3, random_state=42
+    )
     gb_model.fit(X_array, y)
     model_metrics['gradient_boosting'] = evaluate_model(gb_model, X, y, X_scaled, False)
     
-    # Train and evaluate XGBoost
+    # 5. XGBoost with manual cross-validation
     xgb_model = xgb.XGBRegressor(
-        n_estimators=200,
-        learning_rate=0.1,
-        max_depth=5,
-        min_child_weight=3,
-        subsample=0.8,
-        colsample_bytree=0.8,
+        n_estimators=200, learning_rate=0.1,
+        max_depth=5, min_child_weight=3,
+        subsample=0.8, colsample_bytree=0.8,
         random_state=42
     )
     
-    # Manual cross-validation for XGBoost
+    # Perform manual k-fold cross-validation for XGBoost
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
     cv_scores = []
     
@@ -141,22 +148,17 @@ def train_models():
         X_train_cv, X_val_cv = X_array[train_idx], X_array[val_idx]
         y_train_cv, y_val_cv = y.iloc[train_idx], y.iloc[val_idx]
         
-        # Train model
         xgb_model.fit(X_train_cv, y_train_cv)
-        
-        # Predict and calculate R2 score
         y_pred_cv = xgb_model.predict(X_val_cv)
         cv_scores.append(r2_score(y_val_cv, y_pred_cv))
     
-    # Train final model on full training data
+    # Final XGBoost evaluation
     X_train, X_test, y_train, y_test = train_test_split(X_array, y, test_size=0.2, random_state=42)
     xgb_model.fit(X_train, y_train)
-    
-    # Calculate predictions
     y_pred = xgb_model.predict(X_test)
     
-    # Calculate metrics for XGBoost
-    xgb_metrics = {
+    # Store XGBoost metrics
+    model_metrics['xgboost'] = {
         'cv_score_mean': np.mean(cv_scores),
         'cv_score_std': np.std(cv_scores),
         'rmse': np.sqrt(mean_squared_error(y_test, y_pred)),
@@ -164,9 +166,8 @@ def train_models():
         'r2': r2_score(y_test, y_pred),
         'prediction_std': None
     }
-    model_metrics['xgboost'] = xgb_metrics
     
-    # Save models and metrics
+    # Save all models and their metrics
     with open('house_price_models.pkl', 'wb') as f:
         pickle.dump({
             'linear': (lr_model, X_scaled.columns, scaler),

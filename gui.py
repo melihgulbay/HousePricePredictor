@@ -18,15 +18,17 @@ import json
 import webbrowser
 import os
 from price_map_visualizer import PriceMapVisualizer
+from gui_visualization import GUIVisualization
 
 class HousePricePredictorGUI:
     def __init__(self, root):
+        # Initialize main window settings
         self.root = root
         self.root.title("Istanbul House Price Predictor")
-        self.root.geometry("1200x900")  # Wider window
+        self.root.geometry("1200x900")  # Set window size
         self.root.configure(bg='#f0f0f0')
         
-        # Configure styles
+        # Configure visual styles for widgets
         style = ttk.Style()
         style.configure('Modern.TLabel', font=('Helvetica', 12), padding=5)
         style.configure('Header.TLabel', font=('Helvetica', 16, 'bold'), padding=10)
@@ -45,24 +47,18 @@ class HousePricePredictorGUI:
                                style='Header.TLabel')
         title_label.grid(row=0, column=0, columnspan=2, pady=20)
         
-        # Create notebook (tabbed interface)
+        # Create tabbed interface for different features
         self.notebook = ttk.Notebook(container)
         self.notebook.grid(row=1, column=0, columnspan=2, sticky=(tk.N, tk.S, tk.E, tk.W))
 
-        # Create main prediction tab
-        prediction_frame = ttk.Frame(self.notebook)
+        # Initialize different tabs for various functionalities
+        prediction_frame = ttk.Frame(self.notebook)  # Main prediction interface
+        viz_frame = ttk.Frame(self.notebook)        # Data visualization
+        metrics_frame = ttk.Frame(self.notebook)    # Model performance metrics
+
+        # Add tabs to notebook
         self.notebook.add(prediction_frame, text='Price Prediction')
-
-        # Create visualization tab
-        viz_frame = ttk.Frame(self.notebook)
         self.notebook.add(viz_frame, text='Visualizations')
-
-        # Create comparison tab
-        comparison_frame = ttk.Frame(self.notebook)
-        self.notebook.add(comparison_frame, text='District Comparison')
-        
-        # **Create Model Metrics Tab**
-        metrics_frame = ttk.Frame(self.notebook)
         self.notebook.add(metrics_frame, text='Model Metrics')
 
         # Initialize existing frames
@@ -83,8 +79,6 @@ class HousePricePredictorGUI:
                    command=self.show_price_vs_area).pack(side=tk.LEFT, padx=5)
         ttk.Button(viz_buttons_frame, text="District Heatmap", 
                    command=self.show_district_heatmap).pack(side=tk.LEFT, padx=5)
-        ttk.Button(viz_buttons_frame, text="District Comparison", 
-                   command=self.show_district_comparison).pack(side=tk.LEFT, padx=5)
         ttk.Button(viz_buttons_frame, text="Room Distribution", 
                    command=self.show_room_distribution).pack(side=tk.LEFT, padx=5)
         ttk.Button(viz_buttons_frame, text="Price Map", 
@@ -110,13 +104,13 @@ class HousePricePredictorGUI:
         self.plot_frame = ttk.Frame(viz_frame)
         self.plot_frame.grid(row=1, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
         
-        # Load the models and metrics
+        # Load trained models and their performance metrics
         with open('house_price_models.pkl', 'rb') as f:
             self.models_data = pickle.load(f)
         self.models = {k: v for k, v in self.models_data.items() if k != 'metrics'}
         self.metrics = self.models_data.get('metrics', {})
         
-        # Districts list with English characters
+        # Define available districts and room types
         self.districts = [
             'Adalar', 'Arnavutkoy', 'Atasehir', 'Avcilar', 'Bagcilar', 
             'Bahcelievler', 'Bakirkoy', 'Basaksehir', 'Bayrampasa', 'Besiktas', 
@@ -128,7 +122,6 @@ class HousePricePredictorGUI:
             'Tuzla', 'Umraniye', 'Uskudar', 'Zeytinburnu'
         ]
         
-        # Room types list
         self.room_types = [
             'Stüdyo (1+0)', '1+1', '1.5+1', '2+0', '2+1', '2.5+1', '2+2',
             '3+0', '3+1', '3.5+1', '3+2', '3+3', '4+0', '4+1', '4.5+1',
@@ -138,7 +131,7 @@ class HousePricePredictorGUI:
             '9+4', '9+5', '9+6', '10+1', '10+2'
         ]
         
-        # Load the dataset for statistics
+        # Load and preprocess the dataset
         self.df = pd.read_csv('house_prices.csv', sep=';', encoding='utf-8')
         self.df['Fiyat'] = self.df['Fiyat'].str.replace(' TL', '').str.replace('.', '').str.replace(',', '.').astype(float)
         
@@ -201,18 +194,20 @@ class HousePricePredictorGUI:
         right_frame.columnconfigure(0, weight=1)
         right_frame.rowconfigure(1, weight=1)
 
-        # Setup comparison tab
-        self.setup_comparison_tab(comparison_frame)
-
-        # **Setup Model Metrics Tab**
+        # Setup Model Metrics Tab
         self.setup_model_metrics_tab(metrics_frame)
 
         # Store the current figure for PDF export
         self.current_figure = None
 
+        # Initialize visualization handler
+        self.viz_handler = GUIVisualization(self.df, self.plot_frame)
+
     def setup_model_metrics_tab(self, frame):
         """
-        Sets up the Model Metrics tab with a Treeview widget and performance visualization.
+        Creates the Model Metrics tab showing:
+        1. Performance metrics table
+        2. Comparative visualization of model performance
         """
         # Create container frames
         table_frame = ttk.Frame(frame)
@@ -365,8 +360,15 @@ class HousePricePredictorGUI:
         self.stats_text.insert(tk.END, f"{price_by_size}")
         
     def predict_price(self):
+        """
+        Main prediction function that:
+        1. Gets user inputs
+        2. Prepares features
+        3. Makes prediction using selected model
+        4. Shows results and relevant statistics
+        """
         try:
-            # Update model selection
+            # Map selected model name to internal model key
             model_map = {
                 'Linear Regression': 'linear',
                 'Random Forest': 'random_forest',
@@ -378,12 +380,12 @@ class HousePricePredictorGUI:
             model_name = model_map[self.model_choice.get()]
             model, columns, scaler = self.models[model_name]
             
-            # Get input values
+            # Get user inputs
             area = float(self.area.get())
             room_type = self.rooms.get()
             district = self.bolge.get()
             
-            # Create feature vector
+            # Prepare feature vector
             features = pd.DataFrame(columns=columns, data=np.zeros((1, len(columns))))
             
             # Use loc[] accessor to set values
@@ -391,7 +393,7 @@ class HousePricePredictorGUI:
             features.loc[0, f'oda_{room_type}'] = 1
             features.loc[0, f'bolge_{district}'] = 1
             
-            # Scale features if using Linear Regression or SVR
+            # Scale features if needed
             if model_name in ['linear', 'svr']:
                 features['m² (Brüt)'] = scaler.transform(features[['m² (Brüt)']])
             
@@ -401,7 +403,7 @@ class HousePricePredictorGUI:
             # Make prediction
             prediction = model.predict(features_array)[0]
             
-            # Find similar properties
+            # Find similar properties for comparison
             similar = self.df[
                 (self.df['Bölge'] == district) & 
                 (self.df['Oda Sayısı'] == room_type) & 
@@ -409,7 +411,7 @@ class HousePricePredictorGUI:
                 (self.df['m² (Brüt)'] <= area * 1.2)
             ]
             
-            # Get basic range statistics
+            # Calculate and display statistics
             if len(similar) > 0:
                 min_price = similar['Fiyat'].min()
                 max_price = similar['Fiyat'].max()
@@ -425,13 +427,12 @@ class HousePricePredictorGUI:
                 range_text = f"\nNo similar properties found in {district}\n" \
                            f"for {room_type} with area around {area}m²"
             
-            # Get additional statistics
             price_trend = self.get_price_trends(district, room_type)
             room_dist = self.get_room_distribution(district)
             size_stats = self.get_size_stats(district, room_type)
             price_by_size = self.get_price_by_size(district, room_type)
             
-            # Update display using the new method
+            # Update display
             self.result_label.config(
                 text=f"Predicted Price ({self.model_choice.get()}): {prediction:,.2f} TL")
             self.update_stats_display(range_text, price_trend, room_dist, 
@@ -441,464 +442,38 @@ class HousePricePredictorGUI:
             self.result_label.config(text="Error: Please check your inputs")
             self.stats_text.delete('1.0', tk.END)
 
-    def create_plot_canvas(self, frame):
-        # Clear existing plot frame
-        for widget in frame.winfo_children():
-            widget.destroy()
-        
-        # Create larger figure (increased from 10,6 to 12,8)
-        fig = Figure(figsize=(12, 8), dpi=100)  # Added explicit DPI setting
-        canvas = FigureCanvasTkAgg(fig, master=frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        
-        # Store the figure reference
-        self.current_figure = fig
-        return fig
-
-    def save_current_plot(self):
-        if self.current_figure is None:
-            return
-            
-        # Ask user for save location
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".pdf",
-            filetypes=[("PDF files", "*.pdf")],
-            title="Save Plot as PDF"
-        )
-        
-        if file_path:
-            try:
-                # Save the current figure as PDF
-                with PdfPages(file_path) as pdf:
-                    pdf.savefig(self.current_figure)
-                    
-                # Show success message
-                tk.messagebox.showinfo(
-                    "Success", 
-                    "Plot successfully saved as PDF!"
-                )
-            except Exception as e:
-                tk.messagebox.showerror(
-                    "Error",
-                    f"Failed to save PDF: {str(e)}"
-                )
-
     def show_price_trends(self):
-        fig = self.create_plot_canvas(self.plot_frame)
-        ax = fig.add_subplot(111)
-        
-        # Calculate average prices by district
-        avg_prices = self.df.groupby('Bölge')['Fiyat'].mean().sort_values(ascending=True)
-        
-        # Create line plot with larger markers and line width
-        ax.plot(range(len(avg_prices)), avg_prices.values, marker='o', 
-                markersize=8, linewidth=2)  # Increased marker and line size
-        
-        # Enhance text sizes
-        ax.set_xticks(range(len(avg_prices)))
-        ax.set_xticklabels(avg_prices.index, rotation=45, ha='right', fontsize=10)
-        ax.set_title('Average House Prices by District', fontsize=14, pad=20)
-        ax.set_ylabel('Price (TL)', fontsize=12)
-        ax.tick_params(axis='y', labelsize=10)
-        
-        # Add grid for better readability
-        ax.grid(True, linestyle='--', alpha=0.7)
-        
-        # Adjust layout with more padding
-        fig.tight_layout(pad=2.0)
+        self.viz_handler.show_price_trends()
 
     def show_price_vs_area(self):
-        fig = self.create_plot_canvas(self.plot_frame)
-        ax = fig.add_subplot(111)
-        
-        # Create scatter plot with larger points and alpha
-        sns.scatterplot(data=self.df, x='m² (Brüt)', y='Fiyat', ax=ax, 
-                        alpha=0.6, s=100)  # Increased point size
-        
-        # Enhance text sizes
-        ax.set_title('Price vs Area', fontsize=14, pad=20)
-        ax.set_xlabel('Area (m²)', fontsize=12)
-        ax.set_ylabel('Price (TL)', fontsize=12)
-        ax.tick_params(axis='both', labelsize=10)
-        
-        # Add grid for better readability
-        ax.grid(True, linestyle='--', alpha=0.7)
-        
-        # Adjust layout
-        fig.tight_layout(pad=2.0)
+        self.viz_handler.show_price_vs_area()
 
     def show_district_heatmap(self):
-        fig = self.create_plot_canvas(self.plot_frame)
-        ax = fig.add_subplot(111)
-        
-        # Calculate average price per m² for each district
-        price_per_m2 = self.df.groupby('Bölge')['Fiyat'].mean().reset_index()
-        price_per_m2 = price_per_m2.pivot_table(index='Bölge', values='Fiyat')
-        
-        # Create heatmap with larger text
-        sns.heatmap(price_per_m2, ax=ax, cmap='YlOrRd', 
-                    annot=True, fmt='.0f', 
-                    annot_kws={'size': 10})  # Increased annotation size
-        
-        # Enhance text sizes
-        ax.set_title('Average Prices Heatmap by District', fontsize=14, pad=20)
-        ax.tick_params(axis='both', labelsize=10)
-        
-        # Adjust layout
-        fig.tight_layout(pad=2.0)
-
-    def show_district_comparison(self):
-        fig = self.create_plot_canvas(self.plot_frame)
-        ax = fig.add_subplot(111)
-        
-        # Calculate average prices by district
-        avg_prices = self.df.groupby('Bölge')['Fiyat'].mean().sort_values(ascending=True)
-        
-        # Create bar plot
-        avg_prices.plot(kind='bar', ax=ax)
-        ax.set_xticklabels(avg_prices.index, rotation=45, ha='right')
-        ax.set_title('Average House Prices by District')
-        ax.set_ylabel('Price (TL)')
-        fig.tight_layout()
-
-        # Store the comparison figure
-        self.current_figure = fig
+        self.viz_handler.show_district_heatmap()
 
     def show_room_distribution(self):
-        fig = self.create_plot_canvas(self.plot_frame)
-        ax = fig.add_subplot(111)
-        
-        # Calculate room type distribution
-        room_dist = self.df['Oda Sayısı'].value_counts()
-        
-        # Filter out very small segments (less than 1%)
-        min_pct = 1.0
-        other_pct = room_dist[room_dist/room_dist.sum()*100 < min_pct].sum()
-        room_dist = room_dist[room_dist/room_dist.sum()*100 >= min_pct]
-        
-        # Add "Other" category if needed
-        if other_pct > 0:
-            room_dist['Other'] = other_pct
-        
-        # Sort values for better visualization
-        room_dist = room_dist.sort_values(ascending=False)
-        
-        # Create pie chart with enhanced styling
-        wedges, texts, autotexts = ax.pie(room_dist.values, 
-                                         labels=room_dist.index,
-                                         autopct='%1.1f%%',
-                                         pctdistance=0.85,
-                                         labeldistance=1.1,
-                                         textprops={'fontsize': 10})  # Increased font size
-        
-        # Enhance text appearance
-        plt.setp(autotexts, size=10, weight="bold")
-        plt.setp(texts, size=10)
-        
-        # Add title with larger font
-        ax.set_title('Distribution of Room Types', fontsize=14, pad=20)
-        
-        # Equal aspect ratio ensures that pie is drawn as a circle
-        ax.axis('equal')
-        
-        # Adjust layout
-        fig.tight_layout(pad=2.0)
-
-    def setup_comparison_tab(self, frame):
-        # Create left panel for district selection
-        left_panel = ttk.Frame(frame, padding="10")
-        left_panel.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.W))
-
-        # Create listbox with districts
-        ttk.Label(left_panel, text="Select Districts to Compare:", 
-                  style='Modern.TLabel').grid(row=0, column=0, pady=(0, 5))
-        
-        # Create listbox with scrollbar
-        listbox_frame = ttk.Frame(left_panel)
-        listbox_frame.grid(row=1, column=0)
-        
-        self.district_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, 
-                                          height=15, width=30)
-        scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", 
-                                 command=self.district_listbox.yview)
-        
-        self.district_listbox.config(yscrollcommand=scrollbar.set)
-        self.district_listbox.pack(side=tk.LEFT, fill=tk.Y)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # Add districts to listbox
-        for district in sorted(self.districts):
-            self.district_listbox.insert(tk.END, district)
-
-        # Create button frame
-        button_frame = ttk.Frame(left_panel)
-        button_frame.grid(row=2, column=0, pady=10)
-
-        # Add comparison button
-        ttk.Button(button_frame, text="Compare Districts", 
-                   command=self.compare_districts, 
-                   style='Modern.TButton').pack(side=tk.LEFT, padx=5)
-
-        # Add download button
-        ttk.Button(button_frame, text="Download as PDF", 
-                   command=self.save_current_plot, 
-                   style='Modern.TButton').pack(side=tk.LEFT, padx=5)
-
-        # Create right panel for plots
-        self.comparison_plot_frame = ttk.Frame(frame, padding="10")
-        self.comparison_plot_frame.grid(row=0, column=1, sticky=(tk.N, tk.S, tk.E, tk.W))
-
-        # Configure grid weights
-        frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(0, weight=1)
-
-    def compare_districts(self):
-        # Get selected districts
-        selections = self.district_listbox.curselection()
-        if not selections:
-            tk.messagebox.showwarning("No Selection", "Please select at least one district to compare.")
-            return
-        
-        selected_districts = [self.district_listbox.get(i) for i in selections]
-        
-        # Create comparison plots
-        fig = self.create_plot_canvas(self.comparison_plot_frame)
-        
-        # Create subplots (3 rows)
-        gs = fig.add_gridspec(3, 1, height_ratios=[2, 2, 1])
-        ax1 = fig.add_subplot(gs[0])  # Room type distribution
-        ax2 = fig.add_subplot(gs[1])  # Price distribution
-        ax3 = fig.add_subplot(gs[2])  # Price per m²
-        
-        # Room type distribution comparison
-        for district in selected_districts:
-            district_data = self.df[self.df['Bölge'] == district]
-            room_dist = district_data['Oda Sayısı'].value_counts()
-            total = len(district_data)
-            # Calculate percentages and keep only top 5 room types
-            room_pcts = (room_dist / total * 100).nlargest(5)
-            ax1.plot(room_pcts.index, room_pcts.values, marker='o', label=district)
-        
-        ax1.set_title('Room Type Distribution (Top 5)')
-        ax1.set_ylabel('Percentage (%)')
-        ax1.tick_params(axis='x', rotation=45)
-        ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        ax1.grid(True, linestyle='--', alpha=0.7)
-        
-        # Price distribution comparison (using KDE plot)
-        price_data = []
-        for district in selected_districts:
-            district_data = self.df[self.df['Bölge'] == district]
-            # Normalize prices to millions for better readability
-            prices_in_millions = district_data['Fiyat'] / 1_000_000
-            sns.kdeplot(data=prices_in_millions, ax=ax2, label=district)
-        
-        ax2.set_title('Price Distribution')
-        ax2.set_xlabel('Price (Million TL)')
-        ax2.set_ylabel('Density')
-        ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        ax2.grid(True, linestyle='--', alpha=0.7)
-        
-        # Average price per m²
-        avg_prices = []
-        for district in selected_districts:
-            district_df = self.df[self.df['Bölge'] == district]
-            avg_price_per_m2 = (district_df['Fiyat'] / district_df['m² (Brüt)']).mean()
-            avg_prices.append(avg_price_per_m2)
-        
-        # Create bar plot
-        bars = ax3.bar(range(len(selected_districts)), avg_prices)
-        ax3.set_xticks(range(len(selected_districts)))
-        ax3.set_xticklabels(selected_districts, rotation=45)
-        ax3.set_title('Average Price per m²')
-        ax3.set_ylabel('TL/m²')
-        ax3.grid(True, linestyle='--', alpha=0.7)
-        
-        # Add value labels on the bars
-        for bar in bars:
-            height = bar.get_height()
-            ax3.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{int(height):,}',
-                    ha='center', va='bottom')
-        
-        # Adjust layout
-        fig.tight_layout()
+        self.viz_handler.show_room_distribution()
 
     def show_price_box_plot(self):
-        """Shows price distribution across districts using box plots"""
-        fig = self.create_plot_canvas(self.plot_frame)
-        ax = fig.add_subplot(111)
-        
-        # Create box plot
-        sns.boxplot(data=self.df, x='Bölge', y='Fiyat', ax=ax)
-        
-        # Customize the plot
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
-        ax.set_title('House Price Distribution by District', fontsize=14, pad=20)
-        ax.set_xlabel('District', fontsize=12)
-        ax.set_ylabel('Price (TL)', fontsize=12)
-        
-        # Format y-axis labels to show millions
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1e6:.1f}M'))
-        
-        fig.tight_layout(pad=2.0)
+        self.viz_handler.show_price_box_plot()
 
     def show_area_distribution(self):
-        """Shows area distribution using histogram and KDE"""
-        fig = self.create_plot_canvas(self.plot_frame)
-        ax = fig.add_subplot(111)
-        
-        # Create histogram with KDE
-        sns.histplot(data=self.df, x='m² (Brüt)', kde=True, ax=ax)
-        
-        # Customize the plot
-        ax.set_title('Distribution of House Areas', fontsize=14, pad=20)
-        ax.set_xlabel('Area (m²)', fontsize=12)
-        ax.set_ylabel('Count', fontsize=12)
-        
-        # Add mean and median lines
-        mean_area = self.df['m² (Brüt)'].mean()
-        median_area = self.df['m² (Brüt)'].median()
-        
-        ax.axvline(mean_area, color='red', linestyle='--', label=f'Mean: {mean_area:.0f}m²')
-        ax.axvline(median_area, color='green', linestyle='--', label=f'Median: {median_area:.0f}m²')
-        ax.legend(fontsize=10)
-        
-        fig.tight_layout(pad=2.0)
+        self.viz_handler.show_area_distribution()
 
     def show_room_price_analysis(self):
-        """Shows average price by room type with error bars"""
-        fig = self.create_plot_canvas(self.plot_frame)
-        ax = fig.add_subplot(111)
-        
-        # Calculate mean and standard error for each room type
-        room_stats = self.df.groupby('Oda Sayısı')['Fiyat'].agg(['mean', 'count', 'std']).reset_index()
-        room_stats['se'] = room_stats['std'] / np.sqrt(room_stats['count'])
-        
-        # Sort by mean price
-        room_stats = room_stats.sort_values('mean', ascending=True)
-        
-        # Create bar plot with error bars
-        bars = ax.bar(range(len(room_stats)), room_stats['mean'])
-        ax.errorbar(range(len(room_stats)), room_stats['se'], 
-                   fmt='none', color='black', capsize=5)
-        
-        # Customize the plot
-        ax.set_xticks(range(len(room_stats)))
-        ax.set_xticklabels(room_stats['Oda Sayısı'], rotation=45, ha='right')
-        ax.set_title('Average Price by Room Type', fontsize=14, pad=20)
-        ax.set_xlabel('Room Type', fontsize=12)
-        ax.set_ylabel('Average Price (TL)', fontsize=12)
-        
-        # Format y-axis labels to show millions
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1e6:.1f}M'))
-        
-        # Add value labels on bars
-        for bar in bars:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                   f'{height/1e6:.1f}M',
-                   ha='center', va='bottom')
-        
-        fig.tight_layout(pad=2.0)
+        self.viz_handler.show_room_price_analysis()
 
     def show_price_map(self):
-        visualizer = PriceMapVisualizer(self.df)
-        success, error = visualizer.create_price_map()
-        
-        if not success:
-            tk.messagebox.showerror("Error", f"Failed to create map: {error}")
+        self.viz_handler.show_price_map()
 
     def show_price_per_m2(self):
-        """Shows average price per square meter by district"""
-        fig = self.create_plot_canvas(self.plot_frame)
-        ax = fig.add_subplot(111)
-        
-        # Calculate price per m² for each property
-        self.df['Price_per_m2'] = self.df['Fiyat'] / self.df['m² (Brüt)']
-        
-        # Calculate average price per m² for each district
-        district_avg = self.df.groupby('Bölge')['Price_per_m2'].mean().sort_values(ascending=True)
-        
-        # Create bar plot
-        bars = ax.bar(range(len(district_avg)), district_avg)
-        
-        # Customize the plot
-        ax.set_xticks(range(len(district_avg)))
-        ax.set_xticklabels(district_avg.index, rotation=45, ha='right')
-        ax.set_title('Average Price per m² by District', fontsize=14, pad=20)
-        ax.set_xlabel('District', fontsize=12)
-        ax.set_ylabel('Price per m² (TL)', fontsize=12)
-        
-        # Add value labels on bars
-        for bar in bars:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                   f'{height:,.0f}',
-                   ha='center', va='bottom', rotation=0)
-        
-        fig.tight_layout(pad=2.0)
+        self.viz_handler.show_price_per_m2()
 
     def show_room_size_analysis(self):
-        """Shows average size by room type"""
-        fig = self.create_plot_canvas(self.plot_frame)
-        ax = fig.add_subplot(111)
-        
-        # Calculate average size for each room type
-        room_sizes = self.df.groupby('Oda Sayısı')['m² (Brüt)'].agg(['mean', 'std']).reset_index()
-        room_sizes = room_sizes.sort_values('mean', ascending=True)
-        
-        # Create bar plot with error bars
-        bars = ax.bar(range(len(room_sizes)), room_sizes['mean'])
-        ax.errorbar(range(len(room_sizes)), room_sizes['mean'], 
-                   yerr=room_sizes['std'], fmt='none', color='black', capsize=5)
-        
-        # Customize the plot
-        ax.set_xticks(range(len(room_sizes)))
-        ax.set_xticklabels(room_sizes['Oda Sayısı'], rotation=45, ha='right')
-        ax.set_title('Average Size by Room Type', fontsize=14, pad=20)
-        ax.set_xlabel('Room Type', fontsize=12)
-        ax.set_ylabel('Average Size (m²)', fontsize=12)
-        
-        # Add value labels on bars
-        for bar in bars:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                   f'{height:.0f}m²',
-                   ha='center', va='bottom')
-        
-        fig.tight_layout(pad=2.0)
+        self.viz_handler.show_room_size_analysis()
 
     def show_district_size_distribution(self):
-        """Shows average size distribution across districts using bar plot with error bars"""
-        fig = self.create_plot_canvas(self.plot_frame)
-        ax = fig.add_subplot(111)
-        
-        # Calculate mean and standard deviation for each district
-        district_stats = self.df.groupby('Bölge')['m² (Brüt)'].agg(['mean', 'std']).reset_index()
-        district_stats = district_stats.sort_values('mean', ascending=True)  # Sort by average size
-        
-        # Create bar plot with error bars
-        bars = ax.bar(range(len(district_stats)), district_stats['mean'])
-        ax.errorbar(range(len(district_stats)), district_stats['mean'], 
-                   yerr=district_stats['std'], fmt='none', color='black', capsize=5)
-        
-        # Customize the plot
-        ax.set_xticks(range(len(district_stats)))
-        ax.set_xticklabels(district_stats['Bölge'], rotation=45, ha='right')
-        ax.set_title('Average House Size by District', fontsize=14, pad=20)
-        ax.set_xlabel('District', fontsize=12)
-        ax.set_ylabel('Average Size (m²)', fontsize=12)
-        
-        # Add value labels on bars
-        for bar in bars:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                   f'{height:.0f}m²',
-                   ha='center', va='bottom')
-        
-        # Add grid for better readability
-        ax.grid(True, linestyle='--', alpha=0.7, axis='y')
-        
-        fig.tight_layout(pad=2.0)
+        self.viz_handler.show_district_size_distribution()
+
+    def save_current_plot(self):
+        self.viz_handler.save_current_plot()

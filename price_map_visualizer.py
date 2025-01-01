@@ -9,7 +9,11 @@ import pandas as pd
 
 class PriceMapVisualizer:
     def __init__(self, df):
+        # Store the input DataFrame containing house data
         self.df = df
+        
+        # Dictionary to convert Turkish district names to English
+        # This is needed because GeoJSON uses English names
         self.turkish_to_english = {
             'Adalar': 'Adalar',
             'Arnavutköy': 'Arnavutkoy',
@@ -54,64 +58,68 @@ class PriceMapVisualizer:
 
     def create_price_map(self):
         try:
-            # Read GeoJSON file
+            # Load geographic data for Istanbul districts
             gdf = gpd.read_file('istanbul_districts.geojson')
             
-            # Convert GeoJSON district names to English
+            # Convert district names to English for matching with house data
             gdf['name_eng'] = gdf['name'].map(self.turkish_to_english)
             
-            # Calculate average prices and counts by district
+            # Calculate district-level statistics:
+            # - Average price per district
+            # - Number of houses per district
             district_stats = self.df.groupby('Bölge').agg({
                 'Fiyat': ['mean', 'count']
             }).reset_index()
             district_stats.columns = ['Bölge', 'Fiyat', 'Count']
             
-            # Merge price data with geodataframe using English names
+            # Merge price statistics with geographic data
             gdf = gdf.merge(district_stats, left_on='name_eng', right_on='Bölge', how='left')
             
-            # Create a Folium map centered on Istanbul
+            # Initialize the base map centered on Istanbul
             m = folium.Map(
-                location=[41.0082, 28.9784],
+                location=[41.0082, 28.9784],  # Istanbul coordinates
                 zoom_start=10,
-                tiles='CartoDB positron'
+                tiles='CartoDB positron'  # Clean, light background
             )
             
-            # Create choropleth layer
+            # Create the choropleth layer showing price distribution
             choropleth = folium.Choropleth(
                 geo_data=json.loads(gdf.to_json()),
                 name='choropleth',
                 data=district_stats,
                 columns=['Bölge', 'Fiyat'],
                 key_on='feature.properties.name_eng',
-                fill_color='YlOrRd',
+                fill_color='YlOrRd',  # Yellow to Red color scheme
                 fill_opacity=0.7,
                 line_opacity=0.2,
                 legend_name='Average Price (TL)',
                 highlight=True
             ).add_to(m)
             
-            # Add hover functionality
+            # Define styling for district polygons
+            # Normal state
             style_function = lambda x: {'fillColor': '#ffffff', 
                                       'color':'#000000', 
                                       'fillOpacity': 0.1, 
                                       'weight': 0.1}
+            # Highlighted state (on hover)
             highlight_function = lambda x: {'fillColor': '#000000', 
                                           'color':'#000000', 
                                           'fillOpacity': 0.50, 
                                           'weight': 0.1}
             
-            # Format price with thousands separator
+            # Format prices with thousands separator for better readability
             gdf['Fiyat_Formatted'] = gdf['Fiyat'].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "N/A")
             
-            # Create a feature group for the popups
+            # Create a feature group for interactive elements
             fg = folium.FeatureGroup(name="House Data")
             
-            # Add district names, stats on hover, and house data on click
+            # Add interactive features for each district
             for idx, row in gdf.iterrows():
-                # Get house data for this district
+                # Get all houses in current district
                 district_houses = self.df[self.df['Bölge'] == row['name_eng']]
                 
-                # Create HTML table for house data
+                # Create HTML table showing individual house details
                 house_data_html = """
                 <div style="max-height: 300px; overflow-y: auto;">
                     <h4>Houses in {}</h4>
@@ -123,6 +131,7 @@ class PriceMapVisualizer:
                         </tr>
                 """.format(row['name'])
                 
+                # Add each house's details to the table
                 for _, house in district_houses.iterrows():
                     house_data_html += """
                         <tr>
@@ -138,7 +147,9 @@ class PriceMapVisualizer:
                 
                 house_data_html += "</table></div>"
                 
-                # Create GeoJson with both tooltip and popup
+                # Add district polygon with:
+                # - Hover tooltip showing summary statistics
+                # - Clickable popup showing detailed house listings
                 folium.GeoJson(
                     row.geometry.__geo_interface__,
                     style_function=style_function,
@@ -155,13 +166,12 @@ class PriceMapVisualizer:
                     popup=folium.Popup(house_data_html, max_width=500)
                 ).add_to(fg)
             
+            # Add the feature group to the map
             fg.add_to(m)
             
-            # Save the map
+            # Save and display the map
             map_path = 'istanbul_price_map.html'
             m.save(map_path)
-            
-            # Open in default web browser
             webbrowser.open('file://' + os.path.realpath(map_path))
             
             return True, None
