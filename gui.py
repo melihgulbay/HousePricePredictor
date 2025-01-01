@@ -7,6 +7,17 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import seaborn as sns
+from matplotlib.backends.backend_pdf import PdfPages
+from tkinter import filedialog
+import tkinter.messagebox
+import geopandas as gpd
+import contextily as ctx
+import folium
+from folium import plugins
+import json
+import webbrowser
+import os
+from price_map_visualizer import PriceMapVisualizer
 
 class HousePricePredictorGUI:
     def __init__(self, root):
@@ -49,7 +60,12 @@ class HousePricePredictorGUI:
         # Create comparison tab
         comparison_frame = ttk.Frame(self.notebook)
         self.notebook.add(comparison_frame, text='District Comparison')
+        
+        # **Create Model Metrics Tab**
+        metrics_frame = ttk.Frame(self.notebook)
+        self.notebook.add(metrics_frame, text='Model Metrics')
 
+        # Initialize existing frames
         # Move existing left_frame and right_frame into prediction_frame
         left_frame = ttk.LabelFrame(prediction_frame, text="Input Parameters", padding="20")
         left_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10)
@@ -71,14 +87,22 @@ class HousePricePredictorGUI:
                    command=self.show_district_comparison).pack(side=tk.LEFT, padx=5)
         ttk.Button(viz_buttons_frame, text="Room Distribution", 
                    command=self.show_room_distribution).pack(side=tk.LEFT, padx=5)
+        ttk.Button(viz_buttons_frame, text="Price Map", 
+                   command=self.show_price_map).pack(side=tk.LEFT, padx=5)
+
+        # Add download button next to visualization buttons
+        ttk.Button(viz_buttons_frame, text="Download as PDF", 
+                   command=self.save_current_plot).pack(side=tk.LEFT, padx=5)
 
         # Frame for the plots
         self.plot_frame = ttk.Frame(viz_frame)
         self.plot_frame.grid(row=1, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
         
-        # Load the models
+        # Load the models and metrics
         with open('house_price_models.pkl', 'rb') as f:
-            self.models = pickle.load(f)
+            self.models_data = pickle.load(f)
+        self.models = {k: v for k, v in self.models_data.items() if k != 'metrics'}
+        self.metrics = self.models_data.get('metrics', {})
         
         # Districts list with English characters
         self.districts = [
@@ -108,8 +132,18 @@ class HousePricePredictorGUI:
         
         # Input elements in left frame
         ttk.Label(left_frame, text="Model:", style='Modern.TLabel').grid(row=0, column=0, padx=15, pady=10, sticky=tk.W)
-        self.model_choice = ttk.Combobox(left_frame, values=['Linear Regression', 'Random Forest'],
-                                       width=30, style='Modern.TCombobox')
+        self.model_choice = ttk.Combobox(
+            left_frame, 
+            values=[
+                'Linear Regression',
+                'Random Forest',
+                'Support Vector Regression',
+                'Gradient Boosting',
+                'XGBoost'
+            ],
+            width=30, 
+            style='Modern.TCombobox'
+        )
         self.model_choice.grid(row=0, column=1, padx=15, pady=10)
         self.model_choice.set('Random Forest')
         
@@ -157,6 +191,115 @@ class HousePricePredictorGUI:
 
         # Setup comparison tab
         self.setup_comparison_tab(comparison_frame)
+
+        # **Setup Model Metrics Tab**
+        self.setup_model_metrics_tab(metrics_frame)
+
+        # Store the current figure for PDF export
+        self.current_figure = None
+
+    def setup_model_metrics_tab(self, frame):
+        """
+        Sets up the Model Metrics tab with a Treeview widget and performance visualization.
+        """
+        # Create container frames
+        table_frame = ttk.Frame(frame)
+        table_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        graph_frame = ttk.Frame(frame)
+        graph_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Create a Treeview widget
+        columns = ('Model', 'CV Score Mean', 'CV Score Std', 'RMSE', 'MAE', 'R2', 'Prediction Std')
+        tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=6)
+        
+        # Define headings
+        for col in columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=150, anchor='center')
+        
+        # Add vertical scrollbar
+        scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscroll=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.pack(fill=tk.X, expand=True)
+
+        # Insert metrics data into the Treeview with formatted numbers
+        for model_name, metric in self.metrics.items():
+            tree.insert('', tk.END, values=(
+                model_name.replace('_', ' ').title(),
+                f"{metric['cv_score_mean']:.3f}",
+                f"{metric['cv_score_std']:.3f}",
+                f"{metric['rmse']:,.2f}",
+                f"{metric['mae']:,.2f}",
+                f"{metric['r2']:.3f}",
+                f"{metric['prediction_std']:,.2f}" if metric['prediction_std'] is not None else 'N/A'
+            ))
+
+        # Configure tag for alternating row colors
+        tree.tag_configure('oddrow', background='#f0f0f0')
+        tree.tag_configure('evenrow', background='#ffffff')
+        
+        # Apply alternating row colors
+        for i, item in enumerate(tree.get_children()):
+            tree.item(item, tags=('evenrow' if i % 2 == 0 else 'oddrow',))
+
+        # Create the comparison graph
+        fig = Figure(figsize=(10, 6))
+        ax = fig.add_subplot(111)
+        
+        # Prepare data for plotting
+        models = []
+        cv_scores = []
+        rmse_scores = []
+        r2_scores = []
+        
+        for model_name, metric in self.metrics.items():
+            models.append(model_name.replace('_', ' ').title())
+            cv_scores.append(metric['cv_score_mean'])
+            rmse_scores.append(metric['rmse'])
+            r2_scores.append(metric['r2'])
+        
+        # Set positions for bars
+        x = np.arange(len(models))
+        width = 0.25
+        
+        # Create grouped bar chart
+        ax.bar(x - width, cv_scores, width, label='CV Score', color='skyblue')
+        ax.bar(x, r2_scores, width, label='R² Score', color='lightgreen')
+        ax.bar(x + width, rmse_scores / max(rmse_scores), width, 
+               label='RMSE (normalized)', color='salmon')
+        
+        # Customize the plot
+        ax.set_ylabel('Score')
+        ax.set_title('Model Performance Comparison')
+        ax.set_xticks(x)
+        ax.set_xticklabels(models, rotation=45, ha='right')
+        ax.legend()
+        ax.grid(True, linestyle='--', alpha=0.7)
+        
+        # Add value labels on the bars
+        def add_value_labels(bars):
+            for bar in bars:
+                height = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width()/2., height,
+                       f'{height:.3f}',
+                       ha='center', va='bottom', fontsize=8)
+        
+        # Add value labels for each set of bars
+        for container in ax.containers:
+            add_value_labels(container)
+        
+        # Adjust layout
+        fig.tight_layout()
+        
+        # Create canvas and add to frame
+        canvas = FigureCanvasTkAgg(fig, master=graph_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Store the figure reference
+        self.current_figure = fig
 
     def get_price_trends(self, district, room_type):
         district_data = self.df[self.df['Bölge'] == district]
@@ -211,8 +354,16 @@ class HousePricePredictorGUI:
         
     def predict_price(self):
         try:
-            # Get selected model
-            model_name = 'linear' if self.model_choice.get() == 'Linear Regression' else 'random_forest'
+            # Update model selection
+            model_map = {
+                'Linear Regression': 'linear',
+                'Random Forest': 'random_forest',
+                'Support Vector Regression': 'svr',
+                'Gradient Boosting': 'gradient_boosting',
+                'XGBoost': 'xgboost',
+                'Neural Network': 'neural_network'
+            }
+            model_name = model_map[self.model_choice.get()]
             model, columns, scaler = self.models[model_name]
             
             # Get input values
@@ -228,12 +379,15 @@ class HousePricePredictorGUI:
             features.loc[0, f'oda_{room_type}'] = 1
             features.loc[0, f'bolge_{district}'] = 1
             
-            # Scale features if using Linear Regression
-            if model_name == 'linear':
+            # Scale features if using Linear Regression or SVR
+            if model_name in ['linear', 'svr']:
                 features['m² (Brüt)'] = scaler.transform(features[['m² (Brüt)']])
             
+            # Convert DataFrame to numpy array to avoid the warning
+            features_array = features.to_numpy()
+            
             # Make prediction
-            prediction = model.predict(features)[0]
+            prediction = model.predict(features_array)[0]
             
             # Find similar properties
             similar = self.df[
@@ -280,12 +434,43 @@ class HousePricePredictorGUI:
         for widget in frame.winfo_children():
             widget.destroy()
         
-        # Create figure and canvas
-        fig = Figure(figsize=(10, 6))
+        # Create larger figure (increased from 10,6 to 12,8)
+        fig = Figure(figsize=(12, 8), dpi=100)  # Added explicit DPI setting
         canvas = FigureCanvasTkAgg(fig, master=frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Store the figure reference
+        self.current_figure = fig
         return fig
+
+    def save_current_plot(self):
+        if self.current_figure is None:
+            return
+            
+        # Ask user for save location
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf")],
+            title="Save Plot as PDF"
+        )
+        
+        if file_path:
+            try:
+                # Save the current figure as PDF
+                with PdfPages(file_path) as pdf:
+                    pdf.savefig(self.current_figure)
+                    
+                # Show success message
+                tk.messagebox.showinfo(
+                    "Success", 
+                    "Plot successfully saved as PDF!"
+                )
+            except Exception as e:
+                tk.messagebox.showerror(
+                    "Error",
+                    f"Failed to save PDF: {str(e)}"
+                )
 
     def show_price_trends(self):
         fig = self.create_plot_canvas(self.plot_frame)
@@ -294,24 +479,42 @@ class HousePricePredictorGUI:
         # Calculate average prices by district
         avg_prices = self.df.groupby('Bölge')['Fiyat'].mean().sort_values(ascending=True)
         
-        # Create line plot
-        ax.plot(range(len(avg_prices)), avg_prices.values, marker='o')
+        # Create line plot with larger markers and line width
+        ax.plot(range(len(avg_prices)), avg_prices.values, marker='o', 
+                markersize=8, linewidth=2)  # Increased marker and line size
+        
+        # Enhance text sizes
         ax.set_xticks(range(len(avg_prices)))
-        ax.set_xticklabels(avg_prices.index, rotation=45, ha='right')
-        ax.set_title('Average House Prices by District')
-        ax.set_ylabel('Price (TL)')
-        fig.tight_layout()
+        ax.set_xticklabels(avg_prices.index, rotation=45, ha='right', fontsize=10)
+        ax.set_title('Average House Prices by District', fontsize=14, pad=20)
+        ax.set_ylabel('Price (TL)', fontsize=12)
+        ax.tick_params(axis='y', labelsize=10)
+        
+        # Add grid for better readability
+        ax.grid(True, linestyle='--', alpha=0.7)
+        
+        # Adjust layout with more padding
+        fig.tight_layout(pad=2.0)
 
     def show_price_vs_area(self):
         fig = self.create_plot_canvas(self.plot_frame)
         ax = fig.add_subplot(111)
         
-        # Create scatter plot
-        sns.scatterplot(data=self.df, x='m² (Brüt)', y='Fiyat', ax=ax, alpha=0.5)
-        ax.set_title('Price vs Area')
-        ax.set_xlabel('Area (m²)')
-        ax.set_ylabel('Price (TL)')
-        fig.tight_layout()
+        # Create scatter plot with larger points and alpha
+        sns.scatterplot(data=self.df, x='m² (Brüt)', y='Fiyat', ax=ax, 
+                        alpha=0.6, s=100)  # Increased point size
+        
+        # Enhance text sizes
+        ax.set_title('Price vs Area', fontsize=14, pad=20)
+        ax.set_xlabel('Area (m²)', fontsize=12)
+        ax.set_ylabel('Price (TL)', fontsize=12)
+        ax.tick_params(axis='both', labelsize=10)
+        
+        # Add grid for better readability
+        ax.grid(True, linestyle='--', alpha=0.7)
+        
+        # Adjust layout
+        fig.tight_layout(pad=2.0)
 
     def show_district_heatmap(self):
         fig = self.create_plot_canvas(self.plot_frame)
@@ -321,10 +524,17 @@ class HousePricePredictorGUI:
         price_per_m2 = self.df.groupby('Bölge')['Fiyat'].mean().reset_index()
         price_per_m2 = price_per_m2.pivot_table(index='Bölge', values='Fiyat')
         
-        # Create heatmap
-        sns.heatmap(price_per_m2, ax=ax, cmap='YlOrRd', annot=True, fmt='.0f')
-        ax.set_title('Average Prices Heatmap by District')
-        fig.tight_layout()
+        # Create heatmap with larger text
+        sns.heatmap(price_per_m2, ax=ax, cmap='YlOrRd', 
+                    annot=True, fmt='.0f', 
+                    annot_kws={'size': 10})  # Increased annotation size
+        
+        # Enhance text sizes
+        ax.set_title('Average Prices Heatmap by District', fontsize=14, pad=20)
+        ax.tick_params(axis='both', labelsize=10)
+        
+        # Adjust layout
+        fig.tight_layout(pad=2.0)
 
     def show_district_comparison(self):
         fig = self.create_plot_canvas(self.plot_frame)
@@ -339,6 +549,9 @@ class HousePricePredictorGUI:
         ax.set_title('Average House Prices by District')
         ax.set_ylabel('Price (TL)')
         fig.tight_layout()
+
+        # Store the comparison figure
+        self.current_figure = fig
 
     def show_room_distribution(self):
         fig = self.create_plot_canvas(self.plot_frame)
@@ -356,30 +569,28 @@ class HousePricePredictorGUI:
         if other_pct > 0:
             room_dist['Other'] = other_pct
         
-        # Calculate percentages
-        pcts = room_dist/room_dist.sum() * 100
-        
         # Sort values for better visualization
         room_dist = room_dist.sort_values(ascending=False)
         
-        # Create pie chart with better formatting
+        # Create pie chart with enhanced styling
         wedges, texts, autotexts = ax.pie(room_dist.values, 
                                          labels=room_dist.index,
                                          autopct='%1.1f%%',
                                          pctdistance=0.85,
-                                         labeldistance=1.1)
+                                         labeldistance=1.1,
+                                         textprops={'fontsize': 10})  # Increased font size
         
-        # Enhance the appearance
-        plt.setp(autotexts, size=8, weight="bold")
-        plt.setp(texts, size=8)
+        # Enhance text appearance
+        plt.setp(autotexts, size=10, weight="bold")
+        plt.setp(texts, size=10)
         
-        # Add title
-        ax.set_title('Distribution of Room Types', pad=20)
+        # Add title with larger font
+        ax.set_title('Distribution of Room Types', fontsize=14, pad=20)
         
         # Equal aspect ratio ensures that pie is drawn as a circle
         ax.axis('equal')
         
-        # Adjust layout to prevent label cutoff
+        # Adjust layout
         fig.tight_layout(pad=2.0)
 
     def setup_comparison_tab(self, frame):
@@ -408,10 +619,19 @@ class HousePricePredictorGUI:
         for district in sorted(self.districts):
             self.district_listbox.insert(tk.END, district)
 
+        # Create button frame
+        button_frame = ttk.Frame(left_panel)
+        button_frame.grid(row=2, column=0, pady=10)
+
         # Add comparison button
-        ttk.Button(left_panel, text="Compare Districts", 
+        ttk.Button(button_frame, text="Compare Districts", 
                    command=self.compare_districts, 
-                   style='Modern.TButton').grid(row=2, column=0, pady=10)
+                   style='Modern.TButton').pack(side=tk.LEFT, padx=5)
+
+        # Add download button
+        ttk.Button(button_frame, text="Download as PDF", 
+                   command=self.save_current_plot, 
+                   style='Modern.TButton').pack(side=tk.LEFT, padx=5)
 
         # Create right panel for plots
         self.comparison_plot_frame = ttk.Frame(frame, padding="10")
@@ -425,6 +645,7 @@ class HousePricePredictorGUI:
         # Get selected districts
         selections = self.district_listbox.curselection()
         if not selections:
+            tk.messagebox.showwarning("No Selection", "Please select at least one district to compare.")
             return
         
         selected_districts = [self.district_listbox.get(i) for i in selections]
@@ -491,3 +712,10 @@ class HousePricePredictorGUI:
         
         # Adjust layout
         fig.tight_layout()
+
+    def show_price_map(self):
+        visualizer = PriceMapVisualizer(self.df)
+        success, error = visualizer.create_price_map()
+        
+        if not success:
+            tk.messagebox.showerror("Error", f"Failed to create map: {error}")
