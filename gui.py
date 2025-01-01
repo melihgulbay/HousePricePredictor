@@ -89,6 +89,18 @@ class HousePricePredictorGUI:
                    command=self.show_room_distribution).pack(side=tk.LEFT, padx=5)
         ttk.Button(viz_buttons_frame, text="Price Map", 
                    command=self.show_price_map).pack(side=tk.LEFT, padx=5)
+        ttk.Button(viz_buttons_frame, text="Price Box Plot", 
+                   command=self.show_price_box_plot).pack(side=tk.LEFT, padx=5)
+        ttk.Button(viz_buttons_frame, text="Area Distribution", 
+                   command=self.show_area_distribution).pack(side=tk.LEFT, padx=5)
+        ttk.Button(viz_buttons_frame, text="Room Price Analysis", 
+                   command=self.show_room_price_analysis).pack(side=tk.LEFT, padx=5)
+        ttk.Button(viz_buttons_frame, text="Price per m²", 
+                   command=self.show_price_per_m2).pack(side=tk.LEFT, padx=5)
+        ttk.Button(viz_buttons_frame, text="Room Size Analysis", 
+                   command=self.show_room_size_analysis).pack(side=tk.LEFT, padx=5)
+        ttk.Button(viz_buttons_frame, text="District Size Distribution", 
+                   command=self.show_district_size_distribution).pack(side=tk.LEFT, padx=5)
 
         # Add download button next to visualization buttons
         ttk.Button(viz_buttons_frame, text="Download as PDF", 
@@ -713,9 +725,180 @@ class HousePricePredictorGUI:
         # Adjust layout
         fig.tight_layout()
 
+    def show_price_box_plot(self):
+        """Shows price distribution across districts using box plots"""
+        fig = self.create_plot_canvas(self.plot_frame)
+        ax = fig.add_subplot(111)
+        
+        # Create box plot
+        sns.boxplot(data=self.df, x='Bölge', y='Fiyat', ax=ax)
+        
+        # Customize the plot
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+        ax.set_title('House Price Distribution by District', fontsize=14, pad=20)
+        ax.set_xlabel('District', fontsize=12)
+        ax.set_ylabel('Price (TL)', fontsize=12)
+        
+        # Format y-axis labels to show millions
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1e6:.1f}M'))
+        
+        fig.tight_layout(pad=2.0)
+
+    def show_area_distribution(self):
+        """Shows area distribution using histogram and KDE"""
+        fig = self.create_plot_canvas(self.plot_frame)
+        ax = fig.add_subplot(111)
+        
+        # Create histogram with KDE
+        sns.histplot(data=self.df, x='m² (Brüt)', kde=True, ax=ax)
+        
+        # Customize the plot
+        ax.set_title('Distribution of House Areas', fontsize=14, pad=20)
+        ax.set_xlabel('Area (m²)', fontsize=12)
+        ax.set_ylabel('Count', fontsize=12)
+        
+        # Add mean and median lines
+        mean_area = self.df['m² (Brüt)'].mean()
+        median_area = self.df['m² (Brüt)'].median()
+        
+        ax.axvline(mean_area, color='red', linestyle='--', label=f'Mean: {mean_area:.0f}m²')
+        ax.axvline(median_area, color='green', linestyle='--', label=f'Median: {median_area:.0f}m²')
+        ax.legend(fontsize=10)
+        
+        fig.tight_layout(pad=2.0)
+
+    def show_room_price_analysis(self):
+        """Shows average price by room type with error bars"""
+        fig = self.create_plot_canvas(self.plot_frame)
+        ax = fig.add_subplot(111)
+        
+        # Calculate mean and standard error for each room type
+        room_stats = self.df.groupby('Oda Sayısı')['Fiyat'].agg(['mean', 'count', 'std']).reset_index()
+        room_stats['se'] = room_stats['std'] / np.sqrt(room_stats['count'])
+        
+        # Sort by mean price
+        room_stats = room_stats.sort_values('mean', ascending=True)
+        
+        # Create bar plot with error bars
+        bars = ax.bar(range(len(room_stats)), room_stats['mean'])
+        ax.errorbar(range(len(room_stats)), room_stats['se'], 
+                   fmt='none', color='black', capsize=5)
+        
+        # Customize the plot
+        ax.set_xticks(range(len(room_stats)))
+        ax.set_xticklabels(room_stats['Oda Sayısı'], rotation=45, ha='right')
+        ax.set_title('Average Price by Room Type', fontsize=14, pad=20)
+        ax.set_xlabel('Room Type', fontsize=12)
+        ax.set_ylabel('Average Price (TL)', fontsize=12)
+        
+        # Format y-axis labels to show millions
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1e6:.1f}M'))
+        
+        # Add value labels on bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                   f'{height/1e6:.1f}M',
+                   ha='center', va='bottom')
+        
+        fig.tight_layout(pad=2.0)
+
     def show_price_map(self):
         visualizer = PriceMapVisualizer(self.df)
         success, error = visualizer.create_price_map()
         
         if not success:
             tk.messagebox.showerror("Error", f"Failed to create map: {error}")
+
+    def show_price_per_m2(self):
+        """Shows average price per square meter by district"""
+        fig = self.create_plot_canvas(self.plot_frame)
+        ax = fig.add_subplot(111)
+        
+        # Calculate price per m² for each property
+        self.df['Price_per_m2'] = self.df['Fiyat'] / self.df['m² (Brüt)']
+        
+        # Calculate average price per m² for each district
+        district_avg = self.df.groupby('Bölge')['Price_per_m2'].mean().sort_values(ascending=True)
+        
+        # Create bar plot
+        bars = ax.bar(range(len(district_avg)), district_avg)
+        
+        # Customize the plot
+        ax.set_xticks(range(len(district_avg)))
+        ax.set_xticklabels(district_avg.index, rotation=45, ha='right')
+        ax.set_title('Average Price per m² by District', fontsize=14, pad=20)
+        ax.set_xlabel('District', fontsize=12)
+        ax.set_ylabel('Price per m² (TL)', fontsize=12)
+        
+        # Add value labels on bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                   f'{height:,.0f}',
+                   ha='center', va='bottom', rotation=0)
+        
+        fig.tight_layout(pad=2.0)
+
+    def show_room_size_analysis(self):
+        """Shows average size by room type"""
+        fig = self.create_plot_canvas(self.plot_frame)
+        ax = fig.add_subplot(111)
+        
+        # Calculate average size for each room type
+        room_sizes = self.df.groupby('Oda Sayısı')['m² (Brüt)'].agg(['mean', 'std']).reset_index()
+        room_sizes = room_sizes.sort_values('mean', ascending=True)
+        
+        # Create bar plot with error bars
+        bars = ax.bar(range(len(room_sizes)), room_sizes['mean'])
+        ax.errorbar(range(len(room_sizes)), room_sizes['mean'], 
+                   yerr=room_sizes['std'], fmt='none', color='black', capsize=5)
+        
+        # Customize the plot
+        ax.set_xticks(range(len(room_sizes)))
+        ax.set_xticklabels(room_sizes['Oda Sayısı'], rotation=45, ha='right')
+        ax.set_title('Average Size by Room Type', fontsize=14, pad=20)
+        ax.set_xlabel('Room Type', fontsize=12)
+        ax.set_ylabel('Average Size (m²)', fontsize=12)
+        
+        # Add value labels on bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                   f'{height:.0f}m²',
+                   ha='center', va='bottom')
+        
+        fig.tight_layout(pad=2.0)
+
+    def show_district_size_distribution(self):
+        """Shows average size distribution across districts using bar plot with error bars"""
+        fig = self.create_plot_canvas(self.plot_frame)
+        ax = fig.add_subplot(111)
+        
+        # Calculate mean and standard deviation for each district
+        district_stats = self.df.groupby('Bölge')['m² (Brüt)'].agg(['mean', 'std']).reset_index()
+        district_stats = district_stats.sort_values('mean', ascending=True)  # Sort by average size
+        
+        # Create bar plot with error bars
+        bars = ax.bar(range(len(district_stats)), district_stats['mean'])
+        ax.errorbar(range(len(district_stats)), district_stats['mean'], 
+                   yerr=district_stats['std'], fmt='none', color='black', capsize=5)
+        
+        # Customize the plot
+        ax.set_xticks(range(len(district_stats)))
+        ax.set_xticklabels(district_stats['Bölge'], rotation=45, ha='right')
+        ax.set_title('Average House Size by District', fontsize=14, pad=20)
+        ax.set_xlabel('District', fontsize=12)
+        ax.set_ylabel('Average Size (m²)', fontsize=12)
+        
+        # Add value labels on bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                   f'{height:.0f}m²',
+                   ha='center', va='bottom')
+        
+        # Add grid for better readability
+        ax.grid(True, linestyle='--', alpha=0.7, axis='y')
+        
+        fig.tight_layout(pad=2.0)

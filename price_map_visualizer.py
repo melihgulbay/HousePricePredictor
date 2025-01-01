@@ -103,20 +103,59 @@ class PriceMapVisualizer:
             # Format price with thousands separator
             gdf['Fiyat_Formatted'] = gdf['Fiyat'].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "N/A")
             
-            # Add district names and stats on hover
-            NIL = folium.features.GeoJson(
-                json.loads(gdf.to_json()),
-                style_function=style_function,
-                control=False,
-                highlight_function=highlight_function,
-                tooltip=folium.features.GeoJsonTooltip(
-                    fields=['name', 'name_eng', 'Fiyat_Formatted', 'Count'],
-                    aliases=['District (TR):', 'District:', 'Average Price (TL):', 'Number of Houses:'],
-                    style=("background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;")
-                )
-            )
-            m.add_child(NIL)
-            m.keep_in_front(NIL)
+            # Create a feature group for the popups
+            fg = folium.FeatureGroup(name="House Data")
+            
+            # Add district names, stats on hover, and house data on click
+            for idx, row in gdf.iterrows():
+                # Get house data for this district
+                district_houses = self.df[self.df['Bölge'] == row['name_eng']]
+                
+                # Create HTML table for house data
+                house_data_html = """
+                <div style="max-height: 300px; overflow-y: auto;">
+                    <h4>Houses in {}</h4>
+                    <table style="width:100%; border-collapse: collapse;">
+                        <tr>
+                            <th style="border: 1px solid #ddd; padding: 8px;">Area (m²)</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">Rooms</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">Price (TL)</th>
+                        </tr>
+                """.format(row['name'])
+                
+                for _, house in district_houses.iterrows():
+                    house_data_html += """
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{:,.0f}</td>
+                        </tr>
+                    """.format(
+                        house['m² (Brüt)'],
+                        house['Oda Sayısı'],
+                        house['Fiyat']
+                    )
+                
+                house_data_html += "</table></div>"
+                
+                # Create GeoJson with both tooltip and popup
+                folium.GeoJson(
+                    row.geometry.__geo_interface__,
+                    style_function=style_function,
+                    highlight_function=highlight_function,
+                    tooltip=folium.Tooltip(
+                        f"""
+                        District (TR): {row['name']}<br>
+                        District: {row['name_eng']}<br>
+                        Average Price (TL): {row['Fiyat_Formatted']}<br>
+                        Number of Houses: {row['Count']}
+                        """,
+                        style=("background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;")
+                    ),
+                    popup=folium.Popup(house_data_html, max_width=500)
+                ).add_to(fg)
+            
+            fg.add_to(m)
             
             # Save the map
             map_path = 'istanbul_price_map.html'
