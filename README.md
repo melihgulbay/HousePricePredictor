@@ -1,5 +1,3 @@
-Here’s your GitHub README optimized and polished for presentation: 
-
 
 # Istanbul House Price Predictor
 
