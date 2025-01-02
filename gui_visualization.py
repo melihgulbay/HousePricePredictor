@@ -81,6 +81,9 @@ class GUIVisualization:
         ax.set_ylabel('Price (TL)', fontsize=12)
         ax.tick_params(axis='y', labelsize=10)
         
+        # Format y-axis labels to show millions (same as price_box_plot)
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1e6:.1f}M'))
+        
         # Add grid for better readability
         ax.grid(True, linestyle='--', alpha=0.7)
         
@@ -101,6 +104,9 @@ class GUIVisualization:
         ax.set_xlabel('Area (m²)', fontsize=12)
         ax.set_ylabel('Price (TL)', fontsize=12)
         ax.tick_params(axis='both', labelsize=10)
+        
+        # Format y-axis labels to show millions (same as price_box_plot)
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1e6:.1f}M'))
         
         # Add grid for better readability
         ax.grid(True, linestyle='--', alpha=0.7)
