@@ -2,26 +2,16 @@ import tkinter as tk
 from tkinter import ttk
 import pickle
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
-from tkinter import filedialog
 import tkinter.messagebox
-import geopandas as gpd
-import contextily as ctx
-import folium
-from folium import plugins
-import json
-import webbrowser
-import os
 from price_map_visualizer import PriceMapVisualizer
 from gui_visualization import GUIVisualization
 from gui_metrics import GUIMetrics
 from gui_prediction import GUIPrediction
 
+# Main GUI class that orchestrates all components
 class HousePricePredictorGUI:
     def __init__(self, root):
         # Initialize main window settings
@@ -30,7 +20,7 @@ class HousePricePredictorGUI:
         self.root.geometry("1200x900")  # Set window size
         self.root.configure(bg='#f0f0f0')
         
-        # Configure visual styles for widgets
+        # Configure styles for consistent UI appearance
         style = ttk.Style()
         style.configure('Modern.TLabel', font=('Helvetica', 12), padding=5)
         style.configure('Header.TLabel', font=('Helvetica', 16, 'bold'), padding=10)
@@ -49,7 +39,7 @@ class HousePricePredictorGUI:
                                style='Header.TLabel')
         title_label.grid(row=0, column=0, columnspan=2, pady=20)
         
-        # Create tabbed interface for different features
+        # Create tabbed interface for organizing different features
         self.notebook = ttk.Notebook(container)
         self.notebook.grid(row=1, column=0, columnspan=2, sticky=(tk.N, tk.S, tk.E, tk.W))
 

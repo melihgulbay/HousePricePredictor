@@ -148,7 +148,7 @@ class GUIPrediction:
         4. Shows results and relevant statistics
         """
         try:
-            # Map selected model name to internal model key
+            # Map user-friendly model names to internal keys
             model_map = {
                 'Linear Regression': 'linear',
                 'Random Forest': 'random_forest',
@@ -183,7 +183,7 @@ class GUIPrediction:
             # Make prediction
             prediction = model.predict(features_array)[0]
             
-            # Find similar properties for comparison
+            # Find similar properties for price range comparison
             similar = self.df[
                 (self.df['Bölge'] == district) & 
                 (self.df['Oda Sayısı'] == room_type) & 

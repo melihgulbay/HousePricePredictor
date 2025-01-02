@@ -10,13 +10,6 @@ import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 from tkinter import filedialog
 import tkinter.messagebox
-import geopandas as gpd
-import contextily as ctx
-import folium
-from folium import plugins
-import json
-import webbrowser
-import os
 from price_map_visualizer import PriceMapVisualizer
 
 

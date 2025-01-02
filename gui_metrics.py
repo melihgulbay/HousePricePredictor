@@ -23,7 +23,7 @@ class GUIMetrics:
         graph_frame = ttk.Frame(frame)
         graph_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Create a Treeview widget
+        # Create scrollable table for metrics
         columns = ('Model', 'CV Score Mean', 'CV Score Std', 'RMSE', 'MAE', 'R2', 'Prediction Std')
         tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=6)
         
@@ -38,7 +38,7 @@ class GUIMetrics:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         tree.pack(fill=tk.X, expand=True)
 
-        # Insert metrics data into the Treeview with formatted numbers
+        # Format and display metrics with proper number formatting
         for model_name, metric in self.metrics.items():
             tree.insert('', tk.END, values=(
                 model_name.replace('_', ' ').title(),
@@ -82,7 +82,7 @@ class GUIMetrics:
         x = np.arange(len(models))
         width = 0.25
         
-        # Create grouped bar chart
+        # Create grouped bar chart showing different metrics
         ax.bar(x - width, cv_scores, width, label='CV Score', color='skyblue')
         ax.bar(x, r2_scores, width, label='R² Score', color='lightgreen')
         ax.bar(x + width, rmse_scores / max(rmse_scores), width, 
