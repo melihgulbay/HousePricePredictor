@@ -99,8 +99,3 @@ HousePricePredictor/
 
 
 
-
-
-
-
-This format ensures clarity, readability, and accessibility for your project's users and contributors. Let me know if you'd like any further adjustments!
